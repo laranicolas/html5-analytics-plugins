@@ -14,12 +14,22 @@ var GAAnalyticsPlugin = function(framework) {
     var _cachedEvents = [];
     var _cacheEvents = true;
 
+    that = this;
+    window.onbeforeunload = function() {
+        that.reportToGA('contentAbandoned');
+        that.log("contentAbandoned");
+    }
+
+    if (ooyalaGaTrackSettings && ooyalaGaTrackSettings.category) {
+      this.gaEventCategory = ooyalaGaTrackSettings.category;
+    } else {
+      this.gaEventCategory = 'Ooyala';
+    }
 
     this.gtm = false;
     this.gaMechanism = 'events';
     this.gaPageviewFormat = 'ooyala-event/:event/:title';
-    this.gaEventCategory = 'Ooyala';
-    this.verboseLogging = false;
+    this.verboseLogging = true;
     this.playbackMilestones = [
         [0.01, 'playProgressStarted'],
         [0.25, 'playProgressQuarter'],
@@ -36,6 +46,7 @@ var GAAnalyticsPlugin = function(framework) {
     this.currentPlaybackType = 'content';
     this.lastEventReported = null;
     this.lastReportedPlaybackMilestone = 0;
+    this.playbackInitiated = false;
 
     /**
      * Log plugin events if verboseLogging is set to 'true'.
@@ -211,7 +222,11 @@ var GAAnalyticsPlugin = function(framework) {
                 this.onAdsPlayed();
                 break;
             case OO.Analytics.EVENTS.VIDEO_PAUSE_REQUESTED:
+            case OO.Analytics.EVENTS.VIDEO_PAUSED:
                 this.onPaused();
+                break;
+            case OO.Analytics.EVENTS.VIDEO_SEEK_REQUESTED:
+                this.onSeek(params);
                 break;
 
             default:
@@ -340,13 +355,21 @@ var GAAnalyticsPlugin = function(framework) {
     this.onPlay = function() {
         this.playing = true;
 
-        if (this.currentPlaybackType == 'content') {
+        if (!this.playbackInitiated) {
+            this.playbackInitiated = true;
             this.reportToGA('playbackStarted');
+            this.log("onPlay");
+            return;
+        }
+
+        if (this.currentPlaybackType == 'content') {
+            this.reportToGA('playbackResumed');
         } else {
             this.reportToGA('adPlaybackStarted');
         }
-        this.log("onPlay");
+        this.log("onResume");
     }
+
 
     /**
      * onEnd event is sent when video and ad playback has completed.
@@ -378,6 +401,27 @@ var GAAnalyticsPlugin = function(framework) {
 
         this.reportToGA('playbackPaused');
         this.log("onPaused");
+    }
+
+    /**
+     * onSeek event is sent when playback scrubbed foward or backward.
+     * @public
+     * @method GAAnalyticsPlugin#onSeek
+     * @params  {object} data The seek time
+     */
+    this.onSeek = function(params) {
+        if (!params || !params.length) {
+            return false;
+        }
+        params = params[0];
+
+        if (params.seekingToTime > this.currentPlayheadPosition) {
+            this.reportToGA('playbackScrubbedForward');
+            this.log("playbackScrubbedForward");
+        } else if (params.seekingToTime < this.currentPlayheadPosition) {
+            this.reportToGA('playbackScrubbedBackward');
+            this.log("playbackScrubbedBackward");
+        }
     }
 
     /**
