@@ -14,18 +14,7 @@ var GAAnalyticsPlugin = function(framework) {
     var _cachedEvents = [];
     var _cacheEvents = true;
 
-    that = this;
-    window.onbeforeunload = function() {
-        that.reportToGA('contentAbandoned');
-        that.log("contentAbandoned");
-    }
-
-    if (ooyalaGaTrackSettings && ooyalaGaTrackSettings.category) {
-      this.gaEventCategory = ooyalaGaTrackSettings.category;
-    } else {
-      this.gaEventCategory = 'Ooyala';
-    }
-
+    this.gaEventCategory = (ooyalaGaTrackSettings && ooyalaGaTrackSettings.gaEventCategory) ? ooyalaGaTrackSettings.gaEventCategory : 'Ooyala';
     this.gtm = false;
     this.gaMechanism = 'events';
     this.gaPageviewFormat = 'ooyala-event/:event/:title';
@@ -39,6 +28,7 @@ var GAAnalyticsPlugin = function(framework) {
     ];
 
     this.playing = false;
+    this.title = '';
     this.duration = null;
     this.playerRoot = null;
     this.gaMethod = null;
@@ -47,6 +37,12 @@ var GAAnalyticsPlugin = function(framework) {
     this.lastEventReported = null;
     this.lastReportedPlaybackMilestone = 0;
     this.playbackInitiated = false;
+
+    that = this;
+    window.onbeforeunload = function() {
+        that.reportToGA('contentAbandoned');
+        that.log("contentAbandoned");
+    }
 
     /**
      * Log plugin events if verboseLogging is set to 'true'.
@@ -140,24 +136,31 @@ var GAAnalyticsPlugin = function(framework) {
             // Legacy GA code block support
             if (typeof _gaq != 'undefined') {
                 this.gaMethod = "_gaq.push(['_trackPageview', '" + this.gaPageviewFormat + "'])";
-                // Current GA code block support
+            // Current GA code block support
             } else if (typeof ga != 'undefined') {
                 this.gaMethod = "ga('send', 'pageview', '" + this.gaPageviewFormat + "')";
             } else {
                 this.displayError();
             }
-            // Track as events?
+        // Track as events?
         } else {
             // Legacy GA code block support
             if (typeof _gaq != 'undefined') {
                 this.gaMethod = "_gaq.push(['_trackEvent', '" + this.gaEventCategory + "', ':event', ':title', ':createdAt']);";
-                // Current GA code block support
+            // Current GA code block support
             } else if (typeof ga != 'undefined') {
                 this.gaMethod = "ga('send', 'event', '" + this.gaEventCategory + "', ':event', ':title', ':createdAt');";
             } else if (this.gtm) {
                 this.gaMethod = "window.dataLayer.push({ 'event': 'OoyalaVideoEvent', 'category': '" + this.gaEventCategory + "', 'action': ':event', 'label': ':title', 'createdAt': ':createdAt'});";
             } else {
                 this.displayError();
+            }
+
+            // Set the dimension reporting method
+            if (typeof ga != 'undefined') {
+                this.gaSetMethod = "ga('set', ':key', ':value');";
+            } else if (this.gtm) {
+                this.gaSetMethod = "window.dataLayer.push({ ':key': ':value' });"
             }
         }
     }
@@ -286,7 +289,7 @@ var GAAnalyticsPlugin = function(framework) {
      * @public
      * @method GAAnalyticsPlugin#onStreamMetadataUpdated
      */
-    this.onStreamMetadataUpdated = function(metadata) {
+     this.onStreamMetadataUpdated = function(metadata) {
         if (metadata.length) metadata = metadata[0];
         this.log("onStreamMetadataUpdated");
 
@@ -294,13 +297,47 @@ var GAAnalyticsPlugin = function(framework) {
             _cacheEvents = false;
             if (!!metadata.base) {
                 var data = metadata.base;
-                this.createdAt = data.created_at || data.CreationDate;
-                if (!!this.createdAt && !!ga && !!ooyalaGaTrackSettings.customDimension) {
-                    ga('set', ooyalaGaTrackSettings.customDimension, this.createdAt);
+                if (
+                    data && ga && ooyalaGaTrackSettings.customDimensions &&
+                    ooyalaGaTrackSettings.customDimensions.fromMetadata
+                ) {
+                    _.each(data, function(value, index) {
+                        if (ooyalaGaTrackSettings.customDimensions.fromMetadata[index]) {
+                            if(this.gaSetMethod) {
+                                eval(this.gaMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromMetadata[index]).replace(/:value/g, value));
+                            }
+                        }
+                    });
                 }
             }
         }
 
+        if (
+            ga && ooyalaGaTrackSettings.customDimensions &&
+            ooyalaGaTrackSettings.customDimensions.fromAttributes
+        ) {
+              _.each(ooyalaGaTrackSettings.customDimensions.fromAttributes, function(value, index) {
+                if (ooyalaGaTrackSettings.customDimensions.fromAttributes[index]) {
+                    var attribute;
+                    switch(index) {
+                        case 'title':
+                            attribute = this.title;
+                            break;
+                        case 'duration':
+                            attribute = this.duration;
+                            break;
+                    }
+                    if(this.gaSetMethod) {
+                        eval(this.gaMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes[index]).replace(/:value/g, attribute));
+                    }
+                }
+            });
+        }
+
+        this.releaseEventCache();
+    }
+
+    this.releaseEventCache = function() {
         while (_cachedEvents.length>0) {
             this.sendToGA(_cachedEvents.shift());
         }
@@ -314,9 +351,15 @@ var GAAnalyticsPlugin = function(framework) {
      */
     this.onContentReady = function(content) {
         this.content = content;
+        this.title = this.content.title;
         if (content.length) this.content = content[0];
         this.reportToGA('contentReady');
         this.log("onContentReady");
+
+        // We release the cache on metadata load, but if there is no metadata, we have to release it manually.
+        setTimeout(function() {
+            this.releaseEventCache();
+        }, 10000);
     }
 
     /**
@@ -369,7 +412,6 @@ var GAAnalyticsPlugin = function(framework) {
         }
         this.log("onResume");
     }
-
 
     /**
      * onEnd event is sent when video and ad playback has completed.
@@ -430,7 +472,7 @@ var GAAnalyticsPlugin = function(framework) {
      * @method GAAnalyticsPlugin#sendToGA
      */
     this.sendToGA = function(event) {
-        var method = this.gaMethod.replace(/:hostname/g, document.location.host).replace(/:event/g, event).replace(/:title/g, this.content.title).replace(/:createdAt/g, this.createdAt);
+        var method = this.gaMethod.replace(/:hostname/g, document.location.host).replace(/:event/g, event).replace(/:title/g, this.title).replace(/:createdAt/g, this.createdAt);
         eval(method);
         this.log('REPORTED TO GA:' + method);
     }
@@ -441,6 +483,18 @@ var GAAnalyticsPlugin = function(framework) {
      * @method GAAnalyticsPlugin#reportToGA
      */
     this.reportToGA = function(event) {
+        var counts = {};
+        if(ooyalaGaTrackSettings && ooyalaGaTrackSettings.customMetrics && ooyalaGaTrackSettings.customMetrics[event]) {
+            if(counts[event]) {
+                counts[event] += 1;
+            } else {
+                counts[event] = 1;
+            }
+            if(this.gaSetMethod) {
+                eval(this.gaMethod.replace(/:key/g, ooyalaGaTrackSettings.customMetrics[event]).replace(/:value/g, counts[event]));
+            }
+        }
+
         if (this.gaMethod && this.lastEventReported != event) {
             // Ooyala event subscriptions result in duplicate triggers; we'll filter them out here
             this.lastEventReported = event;
