@@ -37,6 +37,9 @@ var GAAnalyticsPlugin = function(framework) {
     this.lastEventReported = null;
     this.lastReportedPlaybackMilestone = 0;
     this.playbackInitiated = false;
+    this.lastReportedProgress = 0;
+    this.createdAt = 0;
+    this.customDimensionsReported = false;
 
     that = this;
     window.onbeforeunload = function() {
@@ -146,12 +149,12 @@ var GAAnalyticsPlugin = function(framework) {
         } else {
             // Legacy GA code block support
             if (typeof _gaq != 'undefined') {
-                this.gaMethod = "_gaq.push(['_trackEvent', '" + this.gaEventCategory + "', ':event', ':title', ':createdAt']);";
+                this.gaMethod = "_gaq.push(['_trackEvent', '" + this.gaEventCategory + "', ':event', ':title']);";
             // Current GA code block support
             } else if (typeof ga != 'undefined') {
-                this.gaMethod = "ga('send', 'event', '" + this.gaEventCategory + "', ':event', ':title', ':createdAt');";
+                this.gaMethod = "ga('send', 'event', '" + this.gaEventCategory + "', ':event', ':title');";
             } else if (this.gtm) {
-                this.gaMethod = "window.dataLayer.push({ 'event': 'OoyalaVideoEvent', 'category': '" + this.gaEventCategory + "', 'action': ':event', 'label': ':title', 'createdAt': ':createdAt'});";
+                this.gaMethod = "window.dataLayer.push({ 'event': 'OoyalaVideoEvent', 'category': '" + this.gaEventCategory + "', 'action': ':event', 'label': ':title'});";
             } else {
                 this.displayError();
             }
@@ -304,34 +307,12 @@ var GAAnalyticsPlugin = function(framework) {
                     _.each(data, function(value, index) {
                         if (ooyalaGaTrackSettings.customDimensions.fromMetadata[index]) {
                             if(this.gaSetMethod) {
-                                eval(this.gaMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromMetadata[index]).replace(/:value/g, value));
+                                eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromMetadata[index]).replace(/:value/g, value));
                             }
                         }
-                    });
+                    }, this);
                 }
             }
-        }
-
-        if (
-            ga && ooyalaGaTrackSettings.customDimensions &&
-            ooyalaGaTrackSettings.customDimensions.fromAttributes
-        ) {
-              _.each(ooyalaGaTrackSettings.customDimensions.fromAttributes, function(value, index) {
-                if (ooyalaGaTrackSettings.customDimensions.fromAttributes[index]) {
-                    var attribute;
-                    switch(index) {
-                        case 'title':
-                            attribute = this.title;
-                            break;
-                        case 'duration':
-                            attribute = this.duration;
-                            break;
-                    }
-                    if(this.gaSetMethod) {
-                        eval(this.gaMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes[index]).replace(/:value/g, attribute));
-                    }
-                }
-            });
         }
 
         this.releaseEventCache();
@@ -351,14 +332,15 @@ var GAAnalyticsPlugin = function(framework) {
      */
     this.onContentReady = function(content) {
         this.content = content;
-        this.title = this.content.title;
         if (content.length) this.content = content[0];
+        this.title = this.content.title;
         this.reportToGA('contentReady');
         this.log("onContentReady");
 
         // We release the cache on metadata load, but if there is no metadata, we have to release it manually.
+        self = this;
         setTimeout(function() {
-            this.releaseEventCache();
+            self.releaseEventCache();
         }, 10000);
     }
 
@@ -374,15 +356,51 @@ var GAAnalyticsPlugin = function(framework) {
         }
 
         params = params[0];
-
         if (params.totalStreamDuration > 0) {
             this.duration = params.totalStreamDuration;
         }
 
+        if (
+            ga && ooyalaGaTrackSettings.customDimensions &&
+            ooyalaGaTrackSettings.customDimensions.fromAttributes &&
+            !this.customDimensionsReported
+        ) {
+            self = this;
+            _.each(ooyalaGaTrackSettings.customDimensions.fromAttributes, function(value, index) {
+                if (ooyalaGaTrackSettings.customDimensions.fromAttributes[index]) {
+                    var attribute;
+                    switch(index) {
+                        case 'title':
+                            attribute = this.title;
+                            break;
+                        case 'duration':
+                            attribute = this.duration;
+                            break;
+                    }
+                    if(this.gaSetMethod) {
+                        eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes[index]).replace(/:value/g, attribute));
+                    }
+                }
+            },this);
+            this.customDimensionsReported = true;
+        }
+
         this.currentPlayheadPosition = params.streamPosition;
 
-        _.each(this.playbackMilestones, function(milestone){
-            if ((this.currentPlayheadPosition / this.duration) > milestone[0] && this.lastReportedPlaybackMilestone != milestone[0] && milestone[0] > this.lastReportedPlaybackMilestone) {
+        playProgress = this.currentPlayheadPosition / this.duration;
+
+        if (this.currentPlayheadPosition > this.lastReportedProgress) {
+            this.reportToGA("playProgress");
+            if (ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']) {
+                if(this.gaSetMethod) {
+                    eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
+                }
+            }
+            this.lastReportedProgress += 5;
+        }
+
+        _.each(this.playbackMilestones, function(milestone) {
+            if (playProgress > milestone[0] && this.lastReportedPlaybackMilestone != milestone[0] && milestone[0] > this.lastReportedPlaybackMilestone) {
                 this.reportToGA(milestone[1]);
                 this.lastReportedPlaybackMilestone = milestone[0];
                 this.log("onPositionChanged (" + time + ", " + milestone[1] + ")");
@@ -419,6 +437,12 @@ var GAAnalyticsPlugin = function(framework) {
      * @method GAAnalyticsPlugin#onEnd
      */
     this.onEnd = function() {
+        if (ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']) {
+            if(this.gaSetMethod) {
+                eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
+            }
+        }
+
         this.reportToGA('playbackFinished');
         this.log("onEnd");
     }
@@ -472,7 +496,7 @@ var GAAnalyticsPlugin = function(framework) {
      * @method GAAnalyticsPlugin#sendToGA
      */
     this.sendToGA = function(event) {
-        var method = this.gaMethod.replace(/:hostname/g, document.location.host).replace(/:event/g, event).replace(/:title/g, this.title).replace(/:createdAt/g, this.createdAt);
+        var method = this.gaMethod.replace(/:hostname/g, document.location.host).replace(/:event/g, event).replace(/:title/g, this.title);
         eval(method);
         this.log('REPORTED TO GA:' + method);
     }
@@ -491,7 +515,7 @@ var GAAnalyticsPlugin = function(framework) {
                 counts[event] = 1;
             }
             if(this.gaSetMethod) {
-                eval(this.gaMethod.replace(/:key/g, ooyalaGaTrackSettings.customMetrics[event]).replace(/:value/g, counts[event]));
+                eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customMetrics[event]).replace(/:value/g, counts[event]));
             }
         }
 
