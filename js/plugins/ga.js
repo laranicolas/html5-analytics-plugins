@@ -165,6 +165,10 @@ var GAAnalyticsPlugin = function(framework) {
             } else if (this.gtm) {
                 this.gaSetMethod = "window.dataLayer.push({ ':key': ':value' });"
             }
+
+            if (typeof ga != 'undefined') {
+                this.gaCustomMethod = "ga('send', 'event', '" + this.gaEventCategory + "', ':event', {':key': ':value'});";
+            }
         }
     }
 
@@ -388,12 +392,10 @@ var GAAnalyticsPlugin = function(framework) {
         this.currentPlayheadPosition = params.streamPosition;
 
         playProgress = this.currentPlayheadPosition / this.duration;
-
         if (this.currentPlayheadPosition > this.lastReportedProgress) {
-            this.reportToGA("playProgress");
             if (ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']) {
-                if(this.gaSetMethod) {
-                    eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
+                if(this.gaCustomMethod) {
+                    eval(this.gaCustomMethod.replace(/:event/g, "playProgress").replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
                 }
             }
             this.lastReportedProgress += 5;
@@ -438,8 +440,8 @@ var GAAnalyticsPlugin = function(framework) {
      */
     this.onEnd = function() {
         if (ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']) {
-            if(this.gaSetMethod) {
-                eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
+            if(this.gaCustomMethod) {
+                eval(this.gaCustomMethod.replace(/:event/g, "playProgress").replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
             }
         }
 
@@ -514,8 +516,8 @@ var GAAnalyticsPlugin = function(framework) {
             } else {
                 counts[event] = 1;
             }
-            if(this.gaSetMethod) {
-                eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customMetrics[event]).replace(/:value/g, counts[event]));
+            if(this.gaCustomMethod) {
+                eval(this.gaCustomMethod.replace(/:event/g, event).replace(/:key/g, ooyalaGaTrackSettings.customMetrics[event]).replace(/:value/g, counts[event]));
             }
         }
 
