@@ -398,6 +398,10 @@ var GAAnalyticsPlugin = function(framework) {
                     eval(this.gaCustomMethod.replace(/:event/g, "playProgress").replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
                 }
             }
+            // PlayheadPosition moved
+            if (Math.abs(this.currentPlayheadPosition - this.lastReportedProgress) >= 5) {
+                this.lastReportedProgress = this.currentPlayheadPosition
+            }
             this.lastReportedProgress += 5;
         }
 
