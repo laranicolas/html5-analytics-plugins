@@ -165,6 +165,10 @@ var GAAnalyticsPlugin = function(framework) {
             } else if (this.gtm) {
                 this.gaSetMethod = "window.dataLayer.push({ ':key': ':value' });"
             }
+
+            if (typeof ga != 'undefined') {
+                this.gaCustomMethod = "ga('send', 'event', '" + this.gaEventCategory + "', ':event', {':key': ':value'});";
+            }
         }
     }
 
@@ -388,16 +392,18 @@ var GAAnalyticsPlugin = function(framework) {
         this.currentPlayheadPosition = params.streamPosition;
 
         playProgress = this.currentPlayheadPosition / this.duration;
-
-        if (this.currentPlayheadPosition > this.lastReportedProgress) {
-            this.reportToGA("playProgress");
-            if (ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']) {
-                if(this.gaSetMethod) {
-                    eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
-                }
-            }
-            this.lastReportedProgress += 5;
-        }
+        // if (this.currentPlayheadPosition > this.lastReportedProgress) {
+        //     if (ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']) {
+        //         if(this.gaCustomMethod) {
+        //             eval(this.gaCustomMethod.replace(/:event/g, "playProgress").replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
+        //         }
+        //     }
+        //     // PlayheadPosition moved
+        //     if (Math.abs(this.currentPlayheadPosition - this.lastReportedProgress) >= 5) {
+        //         this.lastReportedProgress = this.currentPlayheadPosition
+        //     }
+        //     this.lastReportedProgress += 5;
+        // }
 
         _.each(this.playbackMilestones, function(milestone) {
             if (playProgress > milestone[0] && this.lastReportedPlaybackMilestone != milestone[0] && milestone[0] > this.lastReportedPlaybackMilestone) {
@@ -437,11 +443,11 @@ var GAAnalyticsPlugin = function(framework) {
      * @method GAAnalyticsPlugin#onEnd
      */
     this.onEnd = function() {
-        if (ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']) {
-            if(this.gaSetMethod) {
-                eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
-            }
-        }
+        // if (ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']) {
+        //     if(this.gaCustomMethod) {
+        //         eval(this.gaCustomMethod.replace(/:event/g, "playProgress").replace(/:key/g, ooyalaGaTrackSettings.customDimensions.fromAttributes['elapsed_time']).replace(/:value/g, this.currentPlayheadPosition));
+        //     }
+        // }
 
         this.reportToGA('playbackFinished');
         this.log("onEnd");
@@ -514,8 +520,8 @@ var GAAnalyticsPlugin = function(framework) {
             } else {
                 counts[event] = 1;
             }
-            if(this.gaSetMethod) {
-                eval(this.gaSetMethod.replace(/:key/g, ooyalaGaTrackSettings.customMetrics[event]).replace(/:value/g, counts[event]));
+            if(this.gaCustomMethod) {
+                eval(this.gaCustomMethod.replace(/:event/g, event).replace(/:key/g, ooyalaGaTrackSettings.customMetrics[event]).replace(/:value/g, counts[event]));
             }
         }
 
